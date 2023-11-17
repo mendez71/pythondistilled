@@ -17,7 +17,7 @@ def make_argument_parser():
     parser.add_argument("--dname", help="Distillation name. Data will be saved to ./checkpoints/<name>/<dname>/.", type=str, required=True)
     parser.add_argument("--checkpoint_to_continue", help="Path to checkpoint.", type=str, default="")
     parser.add_argument("--num_timesteps", help="Num diffusion steps.", type=int, default=1024)
-    parser.add_argument("--num_iters", help="Num iterations.", type=int, default=50000)  # Half of the previous value
+    parser.add_argument("--num_iters", help="Num iterations.", type=int, default=200000)  # Half of the previous value
     parser.add_argument("--batch_size", help="Batch size.", type=int, default=1)
     parser.add_argument("--lr", help="Learning rate.", type=float, default=5e-5)
     parser.add_argument("--scheduler", help="Learning rate scheduler.", type=str, default="StrategyConstantLR")
