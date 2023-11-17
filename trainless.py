@@ -44,7 +44,7 @@ def train_model(args, make_model, make_dataset):
     teacher_ema = make_model().to(device)
 
     checkpoints_dir = os.path.join("checkpoints", args.name, args.dname)
-    if not os.path exists(checkpoints_dir):
+    if not os.path.exists(checkpoints_dir):
         os.makedirs(checkpoints_dir)
 
     def make_sheduler():
