@@ -1,13 +1,10 @@
 import math
-
 import torch
 import torch.nn.functional as F
 
-
 def make_diffusion(model, n_timestep, time_scale, device):
     betas = make_beta_schedule("cosine", cosine_s=8e-3, n_timestep=n_timestep).to(device)
-    return GaussianDiffusion(model, betas, time_scale=time_scale)
-
+    return UniformDiffusion(model, betas, time_scale=time_scale)
 
 def make_beta_schedule(
         schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3
@@ -25,13 +22,11 @@ def make_beta_schedule(
         raise Exception()
     return betas
 
-
 def E_(input, t, shape):
     out = torch.gather(input, 0, t)
     reshape = [shape[0]] + [1] * (len(shape) - 1)
     out = out.reshape(*reshape)
     return out
-
 
 def noise_like(shape, noise_fn, device, repeat=False):
     if repeat:
@@ -41,8 +36,7 @@ def noise_like(shape, noise_fn, device, repeat=False):
     else:
         return noise_fn(*shape, device=device)
 
-
-class GaussianDiffusion:
+class UniformDiffusion:
 
     def __init__(self, net, betas, time_scale=1, sampler="ddpm"):
         super().__init__()
@@ -77,7 +71,7 @@ class GaussianDiffusion:
 
     def p_loss(self, x_0, t, extra_args, noise=None):
         if noise is None:
-            noise = torch.randn_like(x_0)
+            noise = torch.rand_like(x_0) * 2 - 1  # Sample from a uniform distribution (-1 to 1)
         alpha_t, sigma_t = self.get_alpha_sigma(x_0, t)
         z = alpha_t * x_0 + sigma_t * noise
         v_recon = self.inference(z.float(), t.float(), extra_args)
@@ -102,7 +96,7 @@ class GaussianDiffusion:
 
     def p_sample_ddpm(self, x, t, extra_args, clip_denoised=True, **kwargs):
         mean, _, log_var = self.p_mean_variance(x, t, extra_args, clip_denoised)
-        noise = torch.randn_like(x)
+        noise = torch.rand_like(x) * 2 - 1  # Sample from a uniform distribution (-1 to 1)
         shape = [x.shape[0]] + [1] * (x.ndim - 1)
         nonzero_mask = (1 - (t == 0).type(torch.float32)).view(*shape)
         return mean + nonzero_mask * torch.exp(0.5 * log_var) * noise
@@ -110,8 +104,6 @@ class GaussianDiffusion:
     def p_sample_clipped(self, x, t, extra_args, eta=0, clip_denoised=True, clip_value=3):
         v = self.inference(x.float(), t, extra_args)
         alpha, sigma = self.get_alpha_sigma(x, t)
-        # if clip_denoised:
-        #     x = x.clip(-1, 1)
         pred = (x * alpha - v * sigma)
         if clip_denoised:
             pred = pred.clip(-clip_value, clip_value)
@@ -150,36 +142,3 @@ class GaussianDiffusion:
         alpha = E_(self.sqrt_alphas_cumprod, t, x.shape)
         sigma = E_(self.sqrt_one_minus_alphas_cumprod, t, x.shape)
         return alpha, sigma
-
-
-class GaussianDiffusionDefault(GaussianDiffusion):
-
-    def __init__(self, net, betas, time_scale=1, gamma=0.3):
-        super.__init__(net, betas, time_scale)
-        self.gamma = gamma
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def distill_loss(self, student_diffusion, x, t, extra_args, eps=None, student_device=None):
-        if eps is None:
-            eps = torch.randn_like(x)
-        with torch.no_grad():
-            alpha, sigma = self.get_alpha_sigma(x, t + 1)
-            z = alpha * x + sigma * eps
-            alpha_s, sigma_s = student_diffusion.get_alpha_sigma(x, t // 2)
-            alpha_1, sigma_1 = self.get_alpha_sigma(x, t)
-            v = self.inference(z.float(), t.float() + 1, extra_args).double()
-            rec = (alpha * z - sigma * v).clip(-1, 1)
-            z_1 = alpha_1 * rec + (sigma_1 / sigma) * (z - alpha * rec)
-            v_1 = self.inference(z_1.float(), t.float(), extra_args).double()
-            x_2 = (alpha_1 * z_1 - sigma_1 * v_1).clip(-1, 1)
-            eps_2 = (z - alpha_s * x_2) / sigma_s
-            v_2 = alpha_s * eps_2 - sigma_s * x_2
-            if self.gamma == 0:
-                w = 1
-            else:
-                w = torch.pow(1 + alpha_s / sigma_s, self.gamma)
-        v = student_diffusion.net_(z.float(), t.float() * self.time_scale, **extra_args)
-        my_rec = (alpha_s * z - sigma_s * v).clip(-1, 1)
-        return F.mse_loss(w * v.float(), w * v_2.float())
