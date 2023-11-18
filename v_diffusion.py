@@ -1,7 +1,48 @@
+import math
+
 import torch
 import torch.nn.functional as F
 
-class UniformDiffusion:
+
+def make_diffusion(model, n_timestep, time_scale, device):
+    betas = make_beta_schedule("cosine", cosine_s=8e-3, n_timestep=n_timestep).to(device)
+    return GaussianDiffusion(model, betas, time_scale=time_scale)
+
+
+def make_beta_schedule(
+        schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3
+):
+    if schedule == "cosine":
+        timesteps = (
+                torch.arange(n_timestep + 1, dtype=torch.float64) / n_timestep + cosine_s
+        )
+        alphas = timesteps / (1 + cosine_s) * math.pi / 2
+        alphas = torch.cos(alphas).pow(2)
+        alphas = alphas / alphas[0]
+        betas = 1 - alphas[1:] / alphas[:-1]
+        betas = betas.clamp(max=0.999)
+    else:
+        raise Exception()
+    return betas
+
+
+def E_(input, t, shape):
+    out = torch.gather(input, 0, t)
+    reshape = [shape[0]] + [1] * (len(shape) - 1)
+    out = out.reshape(*reshape)
+    return out
+
+
+def noise_like(shape, noise_fn, device, repeat=False):
+    if repeat:
+        resid = [1] * (len(shape) - 1)
+        shape_one = (1, *shape[1:])
+        return noise_fn(*shape_one, device=device).repeat(shape[0], *resid)
+    else:
+        return noise_fn(*shape, device=device)
+
+
+class GaussianDiffusion:
 
     def __init__(self, net, betas, time_scale=1, sampler="ddpm"):
         super().__init__()
@@ -69,6 +110,8 @@ class UniformDiffusion:
     def p_sample_clipped(self, x, t, extra_args, eta=0, clip_denoised=True, clip_value=3):
         v = self.inference(x.float(), t, extra_args)
         alpha, sigma = self.get_alpha_sigma(x, t)
+        # if clip_denoised:
+        #     x = x.clip(-1, 1)
         pred = (x * alpha - v * sigma)
         if clip_denoised:
             pred = pred.clip(-clip_value, clip_value)
@@ -110,17 +153,17 @@ class UniformDiffusion:
 
 
 class GaussianDiffusionDefault(GaussianDiffusion):
+
     def __init__(self, net, betas, time_scale=1, gamma=0.3):
-        super().__init__(net, betas, time_scale)
+        super.__init__(net, betas, time_scale)
         self.gamma = gamma
 
-    def uniform_sample(self, shape, device):
-        return torch.rand(shape, device=device) * 2 - 1  # Uniform distribution in the range [-1, 1]
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def distill_loss(self, student_diffusion, x, t, extra_args, eps=None, student_device=None):
         if eps is None:
-            eps = self.uniform_sample(x.shape, x.device)  # Sample from a uniform distribution
-
+            eps = torch.randn_like(x)
         with torch.no_grad():
             alpha, sigma = self.get_alpha_sigma(x, t + 1)
             z = alpha * x + sigma * eps
