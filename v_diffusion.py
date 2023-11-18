@@ -77,7 +77,8 @@ class GaussianDiffusion:
 
     def p_loss(self, x_0, t, extra_args, noise=None):
         if noise is None:
-            noise = torch.randn_like(x_0)
+            noise = 2 * torch.rand_like(x_0) - 1
+
         alpha_t, sigma_t = self.get_alpha_sigma(x_0, t)
         z = alpha_t * x_0 + sigma_t * noise
         v_recon = self.inference(z.float(), t.float(), extra_args)
