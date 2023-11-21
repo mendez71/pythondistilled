@@ -3,6 +3,12 @@
 In order to run the experiments follow the instruction in the following Google Colab:
 You can view the Colab notebook by clicking [here](https://colab.research.google.com/drive/1R01_CbCNRlVGdpoRhVjQaoZQiytBTh8H#scrollTo=q2IfWrzArbZJ).
 
+
+Difference of this implementation and the official one:
+DDPM model was used without authors modification.
+Rosanality DDPM images sampler was used by default.
+
+
 The files that have been copied from other directories are: 
 celeba_dataset.py
 celeba_u.py
