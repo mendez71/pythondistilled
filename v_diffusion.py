@@ -103,6 +103,8 @@ class GaussianDiffusion:
     def p_sample_clipped(self, x, t, extra_args, eta=0, clip_denoised=True, clip_value=3):
         v = self.inference(x.float(), t, extra_args)
         alpha, sigma = self.get_alpha_sigma(x, t)
+        # if clip_denoised:
+        #     x = x.clip(-1, 1)
         pred = (x * alpha - v * sigma)
         if clip_denoised:
             pred = pred.clip(-clip_value, clip_value)
@@ -124,4 +126,52 @@ class GaussianDiffusion:
         return pred
 
     @torch.no_grad()
-    def
+    def p_sample_loop(self, x, extra_args, eta=0):
+        mode = self.net_.training
+        self.net_.eval()
+        for i in reversed(range(self.num_timesteps)):
+            x = self.p_sample(
+                x,
+                torch.full((x.shape[0],), i, dtype=torch.int64).to(x.device),
+                extra_args,
+                eta=eta,
+            )
+        self.net_.train(mode)
+        return x
+
+    def get_alpha_sigma(self, x, t):
+        alpha = E_(self.sqrt_alphas_cumprod, t, x.shape)
+        sigma = E_(self.sqrt_one_minus_alphas_cumprod, t, x.shape)
+        return alpha, sigma
+
+class GaussianDiffusionDefault(GaussianDiffusion):
+
+    def __init__(self, net, betas, time_scale=1, gamma=0.3):
+        super().__init__(net, betas, time_scale)
+        self.gamma = gamma
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def distill_loss(self, student_diffusion, x, t, extra_args, eps=None, student_device=None):
+        if eps is None:
+            eps = torch.randn_like(x)
+        with torch.no_grad():
+            alpha, sigma = self.get_alpha_sigma(x, t + 1)
+            z = alpha * x + sigma * eps
+            alpha_s, sigma_s = student_diffusion.get_alpha_sigma(x, t // 2)
+            alpha_1, sigma_1 = self.get_alpha_sigma(x, t)
+            v = self.inference(z.float(), t.float() + 1, extra_args).double()
+            rec = (alpha * z - sigma * v).clip(-1, 1)
+            z_1 = alpha_1 * rec + (sigma_1 / sigma) * (z - alpha * rec)
+            v_1 = self.inference(z_1.float(), t.float(), extra_args).double()
+            x_2 = (alpha_1 * z_1 - sigma_1 * v_1).clip(-1, 1)
+            eps_2 = (z - alpha_s * x_2) / sigma_s
+            v_2 = alpha_s * eps_2 - sigma_s * x_2
+            if self.gamma == 0:
+                w = 1
+            else:
+                w = torch.pow(1 + alpha_s / sigma_s, self.gamma)
+        v = student_diffusion.net_(z.float(), t.float() * self.time_scale, **extra_args)
+        my_rec = (alpha_s * z - sigma_s * v).clip(-1, 1)
+        return F.mse_loss(w * v.float(), w * v_2.float())
