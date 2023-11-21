@@ -5,8 +5,7 @@ You can view the Colab notebook by clicking [here](https://colab.research.google
 
 
 Difference of this implementation and the official one:
-DDPM model was used without authors modification.
-Rosanality DDPM images sampler was used by default.
+DDPM model was used without authors modification and Rosanality DDPM images sampler was used by default.
 
 
 The files that have been copied from other directories are: 
